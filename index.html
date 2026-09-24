@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="ca" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <meta name="description" content="Un repte de taula fet de coordenades, enigmes i un tresor final.">
+  <title>El nostre viatge</title>
+
+  <!-- Vendored locally so the game works without internet at the venue.
+       Run ./fetch-vendor.sh once to populate assets/vendor/.
+       If a local file is missing, the onerror handler falls back to a CDN. -->
+  <link rel="stylesheet" href="assets/vendor/fonts/cormorant.css"
+        onerror="this.onerror=null;this.href='https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600&display=swap'">
+  <link rel="stylesheet" href="assets/vendor/fontawesome/css/all.min.css"
+        onerror="this.onerror=null;this.href='https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.7.2/css/all.min.css'">
+  <link rel="stylesheet" href="assets/vendor/aos/aos.css"
+        onerror="this.onerror=null;this.href='https://cdn.jsdelivr.net/npm/aos@2.3.4/dist/aos.css'">
+  <link rel="stylesheet" href="styles.css">
+
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+  <script defer src="assets/vendor/alpine/alpine.min.js"
+          onerror="var s=document.createElement('script');s.defer=true;s.src='https://cdn.jsdelivr.net/npm/alpinejs@3.14.9/dist/cdn.min.js';document.head.appendChild(s);"></script>
+</head>
+
+<body>
+  <div class="paper-texture" aria-hidden="true"></div>
+
+  <main class="app" x-data="gameApp()" x-cloak>
+
+    <!-- ══════════════════════════ header ══════════════════════════ -->
+    <header class="app__header" data-aos="fade-down">
+      <p class="app__wordmark" x-text="copy.common.appName"></p>
+
+      <div class="app__header-actions">
+        <button type="button"
+                class="icon-button"
+                x-show="config.app.enableThemeToggle"
+                @click="toggleTheme()"
+                :aria-label="theme === 'dark' ? copy.common.themeLight : copy.common.themeDark">
+          <i class="fa-solid" :class="theme === 'dark' ? 'fa-sun' : 'fa-moon'" aria-hidden="true"></i>
+        </button>
+      </div>
+    </header>
+
+    <!-- storage warning (non-blocking) -->
+    <p class="notice notice--warning"
+       x-show="storageWarning"
+       x-text="copy.common.storageWarning"></p>
+
+    <!-- table config problem (organisation-facing) -->
+    <p class="notice notice--warning"
+       x-show="configProblem"
+       x-text="copy.common.configError"></p>
+
+    <!-- ══════════════════════════ 1. start ══════════════════════════ -->
+    <template x-if="phase === PHASES.START">
+      <section class="screen screen--center" aria-labelledby="start-title">
+        <i class="screen__glyph fa-solid fa-compass" aria-hidden="true" data-aos="zoom-in"></i>
+
+        <h1 id="start-title" class="screen__title screen__title--display"
+            tabindex="-1" data-autofocus
+            x-text="copy.start.title" data-aos="fade-up"></h1>
+
+        <p class="screen__lede" x-text="copy.start.subtitle" data-aos="fade-up" data-aos-delay="80"></p>
+
+        <button type="button" class="button button--primary"
+                @click="start()" data-aos="fade-up" data-aos-delay="160"
+                x-text="copy.start.button"></button>
+      </section>
+    </template>
+
+    <!-- ══════════════════════ 2. table selection ═════════════════════ -->
+    <template x-if="phase === PHASES.TABLE_SELECTION">
+      <section class="screen" aria-labelledby="tables-title">
+        <h1 id="tables-title" class="screen__title" tabindex="-1" data-autofocus
+            x-text="copy.tableSelection.title" data-aos="fade-up"></h1>
+
+        <p class="screen__lede" x-text="copy.tableSelection.hint"
+           data-aos="fade-up" data-aos-delay="60"></p>
+
+        <ul class="table-list" role="list">
+          <template x-for="(table, index) in tableList" :key="table.id">
+            <li data-aos="fade-up" :data-aos-delay="80 + index * 60">
+              <button type="button"
+                      class="table-option"
+                      :class="{ 'table-option--active': selectedTable === table.id }"
+                      @click="selectTable(table.id)">
+                <img class="table-option__thumb"
+                     :src="table.landmarkImage"
+                     alt=""
+                     loading="lazy"
+                     @error="onImageError($event)">
+                <span class="table-option__label" x-text="table.displayLabel || table.label"></span>
+                <i class="fa-solid fa-arrow-right table-option__arrow" aria-hidden="true"></i>
+              </button>
+            </li>
+          </template>
+        </ul>
+      </section>
+    </template>
+
+    <!-- ═════════════════════ 3. coordinate entry ═════════════════════ -->
+    <template x-if="phase === PHASES.COORDINATES">
+      <section class="screen" aria-labelledby="coord-title">
+        <p class="screen__eyebrow">
+          <span x-text="tableConfig ? (tableConfig.displayLabel || tableConfig.label) : ''"></span>
+        </p>
+
+        <h1 id="coord-title" class="screen__title" tabindex="-1" data-autofocus
+            x-text="copy.coordinates.title" data-aos="fade-up"></h1>
+
+        <template x-if="tableConfig && tableConfig.landmarkImage">
+          <img class="landmark"
+               :src="tableConfig.landmarkImage"
+               :alt="tableConfig.landmarkAlt || ''"
+               loading="lazy"
+               @error="onImageError($event)"
+               data-aos="fade-up" data-aos-delay="60">
+        </template>
+
+        <p class="screen__lede" x-text="copy.coordinates.intro"
+           data-aos="fade-up" data-aos-delay="80"></p>
+
+        <form class="card" @submit.prevent="submitCoordinate()"
+              :class="{ 'is-shaking': shake }"
+              data-aos="fade-up" data-aos-delay="120" novalidate>
+
+          <div class="field">
+            <label class="field__label" for="latitude">
+              <i class="fa-solid fa-location-dot" aria-hidden="true"></i>
+              <span x-text="copy.coordinates.latitudeLabel"></span>
+            </label>
+            <input id="latitude"
+                   class="field__input"
+                   type="text"
+                   inputmode="decimal"
+                   autocomplete="off"
+                   spellcheck="false"
+                   x-model="latitudeInput"
+                   :placeholder="copy.coordinates.latitudePlaceholder"
+                   :aria-invalid="message && message.tone === 'error' ? 'true' : 'false'"
+                   aria-describedby="coord-feedback">
+          </div>
+
+          <div class="field">
+            <label class="field__label" for="longitude">
+              <i class="fa-solid fa-location-dot" aria-hidden="true"></i>
+              <span x-text="copy.coordinates.longitudeLabel"></span>
+            </label>
+            <input id="longitude"
+                   class="field__input"
+                   type="text"
+                   inputmode="decimal"
+                   autocomplete="off"
+                   spellcheck="false"
+                   x-model="longitudeInput"
+                   :placeholder="copy.coordinates.longitudePlaceholder"
+                   :aria-invalid="message && message.tone === 'error' ? 'true' : 'false'"
+                   aria-describedby="coord-feedback">
+          </div>
+
+          <p class="field__help" x-show="tableConfig && tableConfig.helpText"
+             x-text="tableConfig ? tableConfig.helpText : ''"></p>
+
+          <p class="attempts">
+            <span class="attempts__label" x-text="copy.coordinates.attemptsLabel"></span>
+            <span class="attempts__value" x-text="attemptsRemaining"></span>
+            <span class="attempts__dots" aria-hidden="true">
+              <template x-for="i in config.app.maxAttempts" :key="i">
+                <span class="attempts__dot" :class="{ 'is-spent': i > attemptsRemaining }"></span>
+              </template>
+            </span>
+          </p>
+
+          <button type="submit" class="button button--primary"
+                  :disabled="!canSubmitCoordinate"
+                  x-text="copy.coordinates.submit"></button>
+        </form>
+
+        <!-- feedback -->
+        <div id="coord-feedback" class="feedback" role="status" aria-live="polite">
+          <template x-if="message">
+            <p class="feedback__box" :class="'feedback__box--' + message.tone">
+              <i class="feedback__icon fa-solid" aria-hidden="true"
+                 :class="{
+                   'fa-circle-exclamation': message.tone === 'error',
+                   'fa-circle-check': message.tone === 'success',
+                   'fa-circle-info': message.tone === 'info'
+                 }"></i>
+              <span>
+                <strong class="feedback__title" x-text="message.title"></strong>
+                <span class="feedback__body" x-show="message.body" x-text="message.body"></span>
+              </span>
+            </p>
+          </template>
+        </div>
+
+        <button type="button" class="button button--ghost"
+                @click="backToTableSelection()"
+                x-text="copy.common.changeTable"></button>
+      </section>
+    </template>
+
+    <!-- ═════════════ 4. attempts exhausted / reset code ═════════════ -->
+    <template x-if="phase === PHASES.COORDINATES_LOCKED">
+      <section class="screen" aria-labelledby="locked-title">
+        <i class="screen__glyph fa-solid fa-rotate-left" aria-hidden="true" data-aos="zoom-in"></i>
+
+        <h1 id="locked-title" class="screen__title" tabindex="-1" data-autofocus
+            x-text="copy.locked.title" data-aos="fade-up"></h1>
+
+        <p class="screen__lede" x-text="copy.locked.body" data-aos="fade-up" data-aos-delay="60"></p>
+        <p class="screen__note" x-text="copy.locked.help" data-aos="fade-up" data-aos-delay="100"></p>
+
+        <form class="card" @submit.prevent="submitResetCode()"
+              :class="{ 'is-shaking': shake }"
+              data-aos="fade-up" data-aos-delay="140" novalidate>
+          <div class="field">
+            <label class="field__label" for="reset-code">
+              <i class="fa-solid fa-unlock" aria-hidden="true"></i>
+              <span x-text="copy.locked.codeLabel"></span>
+            </label>
+            <input id="reset-code"
+                   class="field__input field__input--code"
+                   type="text"
+                   autocomplete="off"
+                   autocapitalize="characters"
+                   spellcheck="false"
+                   x-model="resetCodeInput"
+                   :placeholder="copy.locked.codePlaceholder"
+                   :aria-invalid="message && message.tone === 'error' ? 'true' : 'false'"
+                   aria-describedby="reset-feedback">
+          </div>
+
+          <button type="submit" class="button button--primary"
+                  :disabled="!canSubmitReset"
+                  x-text="copy.locked.submit"></button>
+        </form>
+
+        <div id="reset-feedback" class="feedback" role="status" aria-live="polite">
+          <template x-if="message">
+            <p class="feedback__box" :class="'feedback__box--' + message.tone">
+              <i class="feedback__icon fa-solid" aria-hidden="true"
+                 :class="{
+                   'fa-circle-exclamation': message.tone === 'error',
+                   'fa-circle-check': message.tone === 'success',
+                   'fa-circle-info': message.tone === 'info'
+                 }"></i>
+              <span>
+                <strong class="feedback__title" x-text="message.title"></strong>
+                <span class="feedback__body" x-show="message.body" x-text="message.body"></span>
+              </span>
+            </p>
+          </template>
+        </div>
+      </section>
+    </template>
+
+    <!-- ══════════════════════════ 5. riddle ══════════════════════════ -->
+    <template x-if="phase === PHASES.RIDDLE">
+      <section class="screen" aria-labelledby="riddle-title">
+        <p class="screen__eyebrow"
+           x-text="tableConfig ? (tableConfig.displayLabel || tableConfig.label) : ''"></p>
+
+        <h1 id="riddle-title" class="screen__title" tabindex="-1" data-autofocus
+            x-text="copy.riddle.title" data-aos="fade-up"></h1>
+
+        <blockquote class="riddle" data-aos="fade-up" data-aos-delay="80">
+          <p x-text="tableConfig ? tableConfig.riddle : ''"></p>
+        </blockquote>
+
+        <form class="card" @submit.prevent="submitRiddle()"
+              :class="{ 'is-shaking': shake }"
+              data-aos="fade-up" data-aos-delay="140" novalidate>
+          <div class="field">
+            <label class="field__label" for="riddle-answer" x-text="copy.riddle.inputLabel"></label>
+            <input id="riddle-answer"
+                   class="field__input"
+                   type="text"
+                   autocomplete="off"
+                   autocapitalize="characters"
+                   spellcheck="false"
+                   x-model="riddleInput"
+                   :placeholder="copy.riddle.placeholder"
+                   :aria-invalid="message && message.tone === 'error' ? 'true' : 'false'"
+                   aria-describedby="riddle-feedback">
+          </div>
+
+          <button type="submit" class="button button--primary"
+                  :disabled="!canSubmitRiddle"
+                  x-text="copy.riddle.submit"></button>
+        </form>
+
+        <div id="riddle-feedback" class="feedback" role="status" aria-live="polite">
+          <template x-if="message">
+            <p class="feedback__box" :class="'feedback__box--' + message.tone">
+              <i class="feedback__icon fa-solid fa-circle-exclamation" aria-hidden="true"></i>
+              <span>
+                <strong class="feedback__title" x-text="message.title"></strong>
+                <span class="feedback__body" x-show="message.body" x-text="message.body"></span>
+              </span>
+            </p>
+          </template>
+        </div>
+      </section>
+    </template>
+
+    <!-- ═══════════════════════ 6. word unlocked ══════════════════════ -->
+    <template x-if="phase === PHASES.WORD_UNLOCKED">
+      <section class="screen screen--center" aria-labelledby="word-title">
+        <i class="screen__glyph fa-solid fa-key" aria-hidden="true" data-aos="zoom-in"></i>
+
+        <h1 id="word-title" class="screen__title" tabindex="-1" data-autofocus
+            x-text="copy.wordUnlocked.title" data-aos="fade-up"></h1>
+
+        <p class="unlocked-word" x-text="unlockedWord" data-aos="zoom-in" data-aos-delay="80"></p>
+
+        <p class="screen__lede" x-text="copy.wordUnlocked.body"
+           data-aos="fade-up" data-aos-delay="140"></p>
+
+        <button type="button" class="button button--primary"
+                @click="go(PHASES.FINAL_PHRASE)"
+                data-aos="fade-up" data-aos-delay="200"
+                x-text="copy.wordUnlocked.button"></button>
+      </section>
+    </template>
+
+    <!-- ═══════════════════════ 7. final phrase ═══════════════════════ -->
+    <template x-if="phase === PHASES.FINAL_PHRASE">
+      <section class="screen" aria-labelledby="final-title">
+        <h1 id="final-title" class="screen__title" tabindex="-1" data-autofocus
+            x-text="copy.finalPhrase.title" data-aos="fade-up"></h1>
+
+        <p class="screen__lede" x-text="copy.finalPhrase.body"
+           data-aos="fade-up" data-aos-delay="60"></p>
+
+        <p class="word-reminder" data-aos="fade-up" data-aos-delay="100">
+          <span class="word-reminder__label" x-text="copy.finalPhrase.reminderLabel"></span>
+          <strong class="word-reminder__value" x-text="unlockedWord"></strong>
+        </p>
+
+        <form class="card" @submit.prevent="submitFinalPhrase()"
+              :class="{ 'is-shaking': shake }"
+              data-aos="fade-up" data-aos-delay="140" novalidate>
+          <div class="field">
+            <label class="field__label" for="final-phrase" x-text="copy.finalPhrase.inputLabel"></label>
+            <textarea id="final-phrase"
+                      class="field__input field__input--area"
+                      rows="3"
+                      autocomplete="off"
+                      autocapitalize="characters"
+                      spellcheck="false"
+                      x-model="finalPhraseInput"
+                      :placeholder="copy.finalPhrase.placeholder"
+                      :aria-invalid="message && message.tone === 'error' ? 'true' : 'false'"
+                      aria-describedby="final-feedback"></textarea>
+          </div>
+
+          <button type="submit" class="button button--primary"
+                  :disabled="!canSubmitFinalPhrase"
+                  x-text="copy.finalPhrase.submit"></button>
+        </form>
+
+        <div id="final-feedback" class="feedback" role="status" aria-live="polite">
+          <template x-if="message">
+            <p class="feedback__box" :class="'feedback__box--' + message.tone">
+              <i class="feedback__icon fa-solid fa-circle-exclamation" aria-hidden="true"></i>
+              <span>
+                <strong class="feedback__title" x-text="message.title"></strong>
+                <span class="feedback__body" x-show="message.body" x-text="message.body"></span>
+              </span>
+            </p>
+          </template>
+        </div>
+
+        <button type="button" class="button button--ghost"
+                @click="go(PHASES.WORD_UNLOCKED)"
+                x-text="copy.finalPhrase.backToWord"></button>
+      </section>
+    </template>
+
+    <!-- ═════════════════════ 8. treasure unlocked ════════════════════ -->
+    <template x-if="phase === PHASES.TREASURE_UNLOCKED">
+      <section class="screen screen--center screen--treasure" aria-labelledby="treasure-title">
+        <i class="screen__glyph fa-solid fa-gem" aria-hidden="true" data-aos="zoom-in"></i>
+
+        <h1 id="treasure-title" class="screen__title screen__title--display"
+            tabindex="-1" data-autofocus
+            x-text="copy.treasure.title" data-aos="fade-up"></h1>
+
+        <p class="final-phrase" x-text="finalPhrase" data-aos="zoom-in" data-aos-delay="100"></p>
+
+        <p class="screen__lede" x-text="copy.treasure.body"
+           data-aos="fade-up" data-aos-delay="160"></p>
+
+        <p class="screen__note" x-text="copy.treasure.note"
+           data-aos="fade-up" data-aos-delay="220"></p>
+      </section>
+    </template>
+
+  </main>
+
+  <script src="assets/vendor/aos/aos.js"
+          onerror="document.documentElement.classList.add('no-aos')"></script>
+  <script>
+    (function () {
+      var reduced = window.matchMedia &&
+                    window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      if (window.AOS) {
+        AOS.init({
+          duration: 600,
+          easing: 'ease-out-cubic',
+          once: true,
+          offset: 20,
+          disable: reduced
+        });
+      } else {
+        // AOS unavailable — make sure nothing stays invisible.
+        document.documentElement.classList.add('no-aos');
+      }
+    })();
+  </script>
+</body>
+</html>
