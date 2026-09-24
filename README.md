@@ -60,10 +60,17 @@ Netlify, Vercel, GitHub Pages, or a folder on any shared host.
 │   ├── make-webp.py        converts assets/*.jpeg|png → assets/landmarks/*.webp
 │   └── test.js             headless test suite (node tools/test.js)
 └── assets/
-    ├── france.jpeg …       original photos (untouched)
-    ├── landmarks/*.webp    generated, referenced by config.js
-    └── vendor/             alpine/ aos/ fontawesome/ (generated)
+    ├── france.jpeg …       original artwork (untouched)
+    ├── landmarks/*.webp    generated — 5.2 MB of originals → 224 KB total
+    └── vendor/             alpine/ aos/ fontawesome/ fonts/ (generated)
 ```
+
+### The landmark artwork
+
+The five source images are portrait watercolour table cards with the country
+name already printed on them. They are shown whole (never cropped) on the
+coordinate screen, and the same file is cropped by CSS to a small square
+thumbnail in the table-selection list.
 
 ---
 

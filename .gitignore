@@ -1,0 +1,12 @@
+# Vendored libraries — fetched by fetch-vendor.sh locally and in CI
+assets/vendor/
+
+# Build output
+_site/
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/

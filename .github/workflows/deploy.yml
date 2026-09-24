@@ -1,0 +1,138 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+# Least privilege: read the repo, publish to Pages, sign the deployment.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deployment at a time. Queued runs are not cancelled — a half-published
+# site on the wedding day would be worse than a slightly stale one.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  # ───────────────────────────────────────────────────────────────────────
+  # 1. Gate on the test suite. Nothing ships if the game logic is broken.
+  # ───────────────────────────────────────────────────────────────────────
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Run the game test suite
+        run: node tools/test.js
+
+  # ───────────────────────────────────────────────────────────────────────
+  # 2. Assemble the site: vendor the libraries, generate images, strip
+  #    everything that should not be public.
+  # ───────────────────────────────────────────────────────────────────────
+  build:
+    name: Build site
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Vendor Alpine, AOS, Font Awesome and the display font
+        run: bash fetch-vendor.sh
+
+      - name: Fail if any library is missing
+        # The page silently falls back to CDNs when a vendored file is absent.
+        # That would work in testing and break at a venue with no signal, so
+        # treat a missing file as a build failure rather than a warning.
+        run: |
+          set -e
+          required=(
+            assets/vendor/alpine/alpine.min.js
+            assets/vendor/aos/aos.js
+            assets/vendor/aos/aos.css
+            assets/vendor/fontawesome/css/all.min.css
+            assets/vendor/fontawesome/webfonts/fa-solid-900.woff2
+          )
+          for f in "${required[@]}"; do
+            if [ ! -s "$f" ]; then
+              echo "::error file=$f::vendored library missing or empty"
+              exit 1
+            fi
+          done
+          echo "All vendored libraries present."
+
+      - name: Generate the WebP landmarks if they are not committed
+        run: |
+          if [ ! -d assets/landmarks ] || [ -z "$(ls -A assets/landmarks 2>/dev/null)" ]; then
+            python3 -m pip install --quiet --user Pillow
+            python3 tools/make-webp.py
+          else
+            echo "assets/landmarks already present — using the committed files."
+          fi
+
+      - name: Assemble _site
+        # Copy everything, minus the things that are for developers only or
+        # that the guests should not be handed: the specs, the checklist, the
+        # test tooling, and the multi-megabyte source artwork (only the WebP
+        # renditions are served).
+        run: |
+          mkdir -p _site
+          tar -cf - \
+            --exclude='./.git' \
+            --exclude='./.github' \
+            --exclude='./.gitignore' \
+            --exclude='./_site' \
+            --exclude='./tools' \
+            --exclude='./specs_*.md' \
+            --exclude='./CHECKLIST.md' \
+            --exclude='./README.md' \
+            --exclude='./fetch-vendor.sh' \
+            --exclude='./assets/*.jpeg' \
+            --exclude='./assets/*.jpg' \
+            --exclude='./assets/*.png' \
+            . | tar -xf - -C _site
+          touch _site/.nojekyll
+
+      - name: Fail if anything private slipped into the build
+        run: |
+          set -e
+          for pattern in 'specs_*.md' 'CHECKLIST.md' 'README.md'; do
+            if compgen -G "_site/$pattern" > /dev/null; then
+              echo "::error::$pattern must not be published"
+              exit 1
+            fi
+          done
+          for f in index.html config.js app.js styles.css; do
+            [ -s "_site/$f" ] || { echo "::error file=$f::missing from _site"; exit 1; }
+          done
+          echo "Site contents:"
+          find _site -type f | sort
+          du -sh _site
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  # ───────────────────────────────────────────────────────────────────────
+  # 3. Publish.
+  # ───────────────────────────────────────────────────────────────────────
+  deploy:
+    name: Deploy
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
